@@ -1,6 +1,6 @@
 # power-ah
 
-一个单文件怀旧小网页：按下电源键，喷出满屏的「啊」。
+按下电源键，喷出满屏的「啊」。
 
 ## 玩法
 
@@ -15,3 +15,6 @@
 ## 技术
 
 单文件 HTML + CSS + JS；用 Pointer 事件 + 定时器区分短按/长按。
+长按效果：
+<img width="1902" height="872" alt="image" src="https://github.com/user-attachments/assets/7407b9b3-e316-44b4-8b9b-4c1cc5591002" />
+可以多在输入框里输入些文字，长按特别解压
