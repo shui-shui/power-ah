@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>电源喷字机</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: #ececec;
+    color: #111;
+    font-family: "SimSun", "宋体", "Songti SC", serif;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  /* 喷出的字所在的舞台 */
+  #stage {
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 10;
+  }
+
+  /* 弹出/飘散的字 */
+  .pop-char {
+    position: absolute;
+    font-family: inherit;
+    font-weight: 700;
+    line-height: 1;
+    color: #111;
+    white-space: nowrap;
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+    opacity: 0;
+    will-change: transform, opacity;
+    animation-name: pop;
+    animation-timing-function: ease-out;
+    animation-fill-mode: forwards;
+  }
+  @keyframes pop {
+    0%   { transform: translate(-50%, -50%) scale(0.3) rotate(var(--rot)); opacity: 0; }
+    14%  { transform: translate(-50%, -50%) scale(1.12) rotate(var(--rot)); opacity: 1; }
+    30%  { opacity: 1; }
+    100% { transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(0.5) rotate(var(--rot)); opacity: 0; }
+  }
+
+  /* 右上角换字 */
+  #hud {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    color: #333;
+    letter-spacing: 1px;
+  }
+  #charInput {
+    width: 54px;
+    height: 34px;
+    font-family: inherit;
+    font-size: 17px;
+    font-weight: 700;
+    text-align: center;
+    border: 2px solid #444;
+    border-radius: 0;
+    background: #fff;
+    color: #111;
+    outline: none;
+  }
+  #charInput:focus { border-color: #000; }
+
+  /* 电源开关按钮 */
+  #power {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    width: 150px;
+    height: 150px;
+    margin: -75px 0 0 -75px;
+    border-radius: 50%;
+    border: 6px solid #444;
+    background: #d6d6d6;
+    color: #222;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: inset 0 -6px 0 rgba(0,0,0,.15), 0 6px 0 #3a3a3a;
+    transition: transform .05s, box-shadow .05s, background .05s;
+    touch-action: none;
+    -webkit-tap-highlight-color: transparent;
+    outline: none;
+    z-index: 20;
+  }
+  #power svg { width: 64px; height: 64px; }
+  #power.pressed {
+    transform: translateY(6px);
+    background: #c4c4c4;
+    box-shadow: inset 0 -2px 0 rgba(0,0,0,.2), 0 0 0 #3a3a3a;
+  }
+
+  /* 底部提示 */
+  #hint {
+    position: fixed;
+    bottom: 18px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 13px;
+    color: #777;
+    letter-spacing: 2px;
+    z-index: 5;
+  }
+</style>
+</head>
+<body>
+  <div id="stage"></div>
+
+  <div id="hud">
+    <label for="charInput">换字</label>
+    <input id="charInput" type="text" value="啊" maxlength="6" autocomplete="off">
+  </div>
+
+  <button id="power" aria-label="电源开关">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+      <circle cx="12" cy="12" r="8.5" pathLength="100" stroke-dasharray="69 12 19" />
+      <line x1="12" y1="12.5" x2="12" y2="5.8" />
+    </svg>
+  </button>
+
+  <p id="hint">短按喷一个字 · 长按持续喷发</p>
+
+<script>
+(() => {
+  'use strict';
+
+  const btn = document.getElementById('power');
+  const input = document.getElementById('charInput');
+  const stage = document.getElementById('stage');
+
+  const THRESHOLD = 400;      // 长按阈值（毫秒）
+  const SPRAY_INTERVAL = 40;  // 喷发间隔
+  const SPRAY_PER_TICK = 3;   // 每个间隔喷几个字
+
+  let currentChar = '啊';
+  let holding = false;
+  let spraying = false;
+  let pressTimer = null;
+  let sprayTimer = null;
+
+  input.addEventListener('input', () => {
+    currentChar = input.value.trim().slice(0, 6) || '啊';
+  });
+
+  function rand(min, max) {
+    return Math.random() * (max - min) + min;
+  }
+
+  // 随机位置，避开中间的电源键
+  function randomPosition() {
+    const margin = 30;
+    const cx = window.innerWidth / 2;
+    const cy = window.innerHeight / 2;
+    const avoidR = 130;
+    for (let i = 0; i < 60; i++) {
+      const x = rand(margin, window.innerWidth - margin);
+      const y = rand(margin, window.innerHeight - margin);
+      if (Math.hypot(x - cx, y - cy) > avoidR) return { x, y };
+    }
+    return { x: rand(margin, window.innerWidth - margin), y: rand(margin, window.innerHeight - margin) };
+  }
+
+  function spawnChar() {
+    const el = document.createElement('span');
+    el.className = 'pop-char';
+    el.textContent = currentChar;
+
+    const pos = randomPosition();
+    const dur = rand(700, 1500);
+
+    el.style.left = pos.x + 'px';
+    el.style.top = pos.y + 'px';
+    el.style.fontSize = rand(44, 150) + 'px';
+    el.style.setProperty('--rot', rand(-45, 45).toFixed(1) + 'deg');
+    el.style.setProperty('--dx', rand(-70, 70).toFixed(1) + 'px');
+    el.style.setProperty('--dy', rand(-160, -30).toFixed(1) + 'px');
+    el.style.animationDuration = dur.toFixed(0) + 'ms';
+
+    stage.appendChild(el);
+    el.addEventListener('animationend', () => el.remove());
+    setTimeout(() => el.remove(), dur + 100); // 兜底清理
+  }
+
+  function startSpray() {
+    if (sprayTimer) clearInterval(sprayTimer);
+    sprayTimer = setInterval(() => {
+      for (let i = 0; i < SPRAY_PER_TICK; i++) spawnChar();
+    }, SPRAY_INTERVAL);
+    for (let i = 0; i < 14; i++) spawnChar(); // 起喷时先来一波
+  }
+
+  function stopSpray() {
+    if (sprayTimer) { clearInterval(sprayTimer); sprayTimer = null; }
+  }
+
+  function pressStart(e) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    if (holding) return;
+    holding = true;
+    btn.classList.add('pressed');
+    pressTimer = setTimeout(() => {
+      spraying = true;
+      startSpray();
+    }, THRESHOLD);
+  }
+
+  function pressEnd() {
+    if (!holding) return;
+    holding = false;
+    btn.classList.remove('pressed');
+    if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+    if (spraying) {
+      spraying = false;
+      stopSpray();
+    } else {
+      spawnChar();
+    }
+  }
+
+  btn.addEventListener('pointerdown', pressStart);
+  window.addEventListener('pointerup', pressEnd);
+  window.addEventListener('pointercancel', pressEnd);
+  btn.addEventListener('contextmenu', (e) => e.preventDefault());
+})();
+</script>
+</body>
+</html>
